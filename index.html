@@ -76,6 +76,7 @@
   .item{ display:flex; align-items:flex-start; gap: 0.7vw; padding: 0.65vw 0.5vw; border-radius: 8px; cursor:pointer; transition: background 0.15s ease; }
   .item:hover{ background: rgba(255,255,255,0.03); }
   .item:hover .remove{ opacity:1; }
+  .item:hover .edit-btn{ opacity:1; }
 
   .check{ width: 1.1vw; height: 1.1vw; min-width:16px; min-height:16px; border-radius:5px; border: 1.5px solid var(--text-faint); flex-shrink:0; margin-top: 0.15vw; display:flex; align-items:center; justify-content:center; transition: all 0.15s ease; }
   .item.done .check{ background: var(--done); border-color: var(--done); }
@@ -87,6 +88,22 @@
 
   .remove{ opacity:0; color: var(--text-faint); font-size: 1vw; padding: 0 0.3vw; transition: opacity 0.15s ease; }
   .remove:hover{ color: #C97C7C; }
+
+  .edit-btn{ opacity:0; color: var(--text-faint); font-size: 0.95vw; padding: 0 0.3vw; transition: opacity 0.15s ease; }
+  .edit-btn:hover{ color: var(--amber); }
+
+  .item-edit-input{
+    flex:1;
+    background: var(--bg);
+    border: 1px solid var(--amber-dim);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 1.05vw;
+    padding: 0.25vw 0.5vw;
+    outline: none;
+    min-width: 0;
+  }
 
   .avatar{ margin-left:auto; flex-shrink:0; cursor:pointer; }
   .avatar.solo img{
@@ -192,6 +209,13 @@
     return '<span class="avatar empty" title="Unassigned"></span>';
   }
 
+  function startEdit(cat, id){
+    const item = state[cat].find(i => i.id === id);
+    if(!item) return;
+    item.editing = true;
+    render();
+  }
+
   function cycleAssignee(cat, id){
     const item = state[cat].find(i => i.id === id);
     if(!item) return;
@@ -206,6 +230,9 @@
     const d = document.createElement('div');
     d.textContent = str;
     return d.innerHTML;
+  }
+  function escapeAttr(str){
+    return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
   function render(){
@@ -239,14 +266,48 @@
         sorted.forEach(item => {
           const row = document.createElement('div');
           row.className = 'item' + (item.done ? ' done' : '');
+
+          if(item.editing){
+            row.innerHTML = `
+              <span class="check">${checkIcon()}</span>
+              <input type="text" class="item-edit-input" value="${escapeAttr(item.text)}">
+              ${avatarHtml(item.assignee)}
+              <span class="remove">✕</span>
+            `;
+            const input = row.querySelector('.item-edit-input');
+            const finishEdit = (save) => {
+              if(save){
+                const val = input.value.trim();
+                if(val) item.text = val;
+              }
+              delete item.editing;
+              render();
+              if(save) persist();
+            };
+            input.addEventListener('keydown', (e) => {
+              if(e.key === 'Enter'){ finishEdit(true); }
+              if(e.key === 'Escape'){ finishEdit(false); }
+            });
+            input.addEventListener('blur', () => finishEdit(true));
+            row.querySelector('.check').addEventListener('click', (e) => { e.stopPropagation(); toggleItem(cat, item.id); });
+            row.querySelector('.avatar').addEventListener('click', (e) => { e.stopPropagation(); cycleAssignee(cat, item.id); });
+            row.querySelector('.remove').addEventListener('click', (e) => { e.stopPropagation(); removeItem(cat, item.id); });
+            itemsEl.appendChild(row);
+            input.focus();
+            input.select();
+            return;
+          }
+
           row.innerHTML = `
             <span class="check">${checkIcon()}</span>
             <span class="item-text">${escapeHtml(item.text)}</span>
+            <span class="edit-btn" title="Edit">✎</span>
             ${avatarHtml(item.assignee)}
             <span class="remove">✕</span>
           `;
           row.querySelector('.check').addEventListener('click', (e) => { e.stopPropagation(); toggleItem(cat, item.id); });
           row.addEventListener('click', () => toggleItem(cat, item.id));
+          row.querySelector('.edit-btn').addEventListener('click', (e) => { e.stopPropagation(); startEdit(cat, item.id); });
           row.querySelector('.avatar').addEventListener('click', (e) => { e.stopPropagation(); cycleAssignee(cat, item.id); });
           row.querySelector('.remove').addEventListener('click', (e) => { e.stopPropagation(); removeItem(cat, item.id); });
           itemsEl.appendChild(row);
