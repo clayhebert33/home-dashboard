@@ -73,7 +73,23 @@
   .items::-webkit-scrollbar{ width:6px; }
   .items::-webkit-scrollbar-thumb{ background: var(--line); border-radius:4px; }
 
-  .item{ display:flex; align-items:flex-start; gap: 0.7vw; padding: 0.65vw 0.5vw; border-radius: 8px; cursor:pointer; transition: background 0.15s ease; }
+  .item{ display:flex; align-items:flex-start; gap: 0.55vw; padding: 0.65vw 0.5vw; border-radius: 8px; cursor:pointer; transition: background 0.15s ease, opacity 0.15s ease; }
+  .item.dragging{ opacity: 0.35; }
+  .drag-handle{
+    cursor: grab;
+    color: var(--text-faint);
+    font-size: 0.9vw;
+    line-height: 1;
+    padding: 0.1vw 0.2vw;
+    margin-top: 0.15vw;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease;
+    touch-action: none;
+  }
+  .item:hover .drag-handle{ opacity: 0.7; }
+  .drag-handle:hover{ opacity:1; color: var(--text-dim); }
+  .drag-handle:active{ cursor: grabbing; }
   .item:hover{ background: rgba(255,255,255,0.03); }
   .item:hover .remove{ opacity:1; }
   .item:hover .edit-btn{ opacity:1; }
@@ -209,6 +225,30 @@
     return '<span class="avatar empty" title="Unassigned"></span>';
   }
 
+  function getDragAfterElement(container, y){
+    const els = [...container.querySelectorAll('.item:not(.dragging)')];
+    return els.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if(offset < 0 && offset > closest.offset){
+        return { offset, element: child };
+      }
+      return closest;
+    }, { offset: -Infinity, element: null }).element;
+  }
+
+  function finalizeOrder(cat, itemsEl){
+    const ids = [...itemsEl.querySelectorAll('.item')].map(el => el.dataset.id);
+    const byId = {};
+    state[cat].forEach(i => { byId[i.id] = i; });
+    const reordered = ids.map(id => byId[id]).filter(Boolean);
+    if(reordered.length === state[cat].length){
+      state[cat] = reordered;
+    }
+    render();
+    persist();
+  }
+
   function startEdit(cat, id){
     const item = state[cat].find(i => i.id === id);
     if(!item) return;
@@ -259,6 +299,18 @@
       board.appendChild(col);
 
       const itemsEl = col.querySelector('.items');
+      itemsEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const draggingEl = itemsEl.querySelector('.item.dragging');
+        if(!draggingEl) return;
+        const afterElement = getDragAfterElement(itemsEl, e.clientY);
+        if(afterElement == null){
+          itemsEl.appendChild(draggingEl);
+        } else {
+          itemsEl.insertBefore(draggingEl, afterElement);
+        }
+      });
+      itemsEl.addEventListener('drop', (e) => { e.preventDefault(); });
       if(items.length === 0){
         itemsEl.innerHTML = '<div class="empty-hint">Nothing here yet</div>';
       } else {
@@ -266,6 +318,7 @@
         sorted.forEach(item => {
           const row = document.createElement('div');
           row.className = 'item' + (item.done ? ' done' : '');
+          row.dataset.id = item.id;
 
           if(item.editing){
             row.innerHTML = `
@@ -300,6 +353,7 @@
 
           row.innerHTML = `
             <span class="check">${checkIcon()}</span>
+            <span class="drag-handle" draggable="true" title="Drag to reorder">⠿</span>
             <span class="item-text">${escapeHtml(item.text)}</span>
             <span class="edit-btn" title="Edit">✎</span>
             ${avatarHtml(item.assignee)}
@@ -310,12 +364,28 @@
           row.querySelector('.edit-btn').addEventListener('click', (e) => { e.stopPropagation(); startEdit(cat, item.id); });
           row.querySelector('.avatar').addEventListener('click', (e) => { e.stopPropagation(); cycleAssignee(cat, item.id); });
           row.querySelector('.remove').addEventListener('click', (e) => { e.stopPropagation(); removeItem(cat, item.id); });
+
+          const handle = row.querySelector('.drag-handle');
+          handle.addEventListener('click', (e) => e.stopPropagation());
+          handle.addEventListener('dragstart', (e) => {
+            e.stopPropagation();
+            row.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', item.id);
+            try{ e.dataTransfer.setDragImage(row, 20, 20); }catch(err){}
+          });
+          handle.addEventListener('dragend', (e) => {
+            e.stopPropagation();
+            row.classList.remove('dragging');
+            finalizeOrder(cat, itemsEl);
+          });
+
           itemsEl.appendChild(row);
         });
       }
 
-      const input = col.querySelector('input');
-      const btn = col.querySelector('button');
+      const input = col.querySelector('.add-row input');
+      const btn = col.querySelector('.add-row button');
       const submit = () => {
         const val = input.value.trim();
         if(!val) return;
