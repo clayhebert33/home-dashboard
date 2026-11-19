@@ -75,6 +75,7 @@
 
   .item{ display:flex; flex-direction:column; border-radius: 6px; transition: background 0.15s ease, opacity 0.15s ease; }
   .item.dragging{ opacity: 0.35; }
+  .items.drop-target{ background: rgba(227,168,87,0.06); box-shadow: inset 0 0 0 1px var(--amber-dim); border-radius: 10px; }
   .item-main{ display:flex; align-items:flex-start; gap: 0.4vw; padding: 0.28vw 0.35vw; cursor:pointer; }
 
   .expand-toggle{
@@ -272,13 +273,21 @@
     }, { offset: -Infinity, element: null }).element;
   }
 
-  function finalizeOrder(cat, itemsEl){
-    const ids = [...itemsEl.querySelectorAll('.item')].map(el => el.dataset.id);
+  // Rebuild every column from the on-screen order, so items can move between columns
+  function finalizeOrder(){
     const byId = {};
-    state[cat].forEach(i => { byId[i.id] = i; });
-    const reordered = ids.map(id => byId[id]).filter(Boolean);
-    if(reordered.length === state[cat].length){
-      state[cat] = reordered;
+    let total = 0;
+    CATEGORIES.forEach(c => { (state[c] || []).forEach(i => { byId[i.id] = i; total++; }); });
+    const next = {};
+    let placed = 0;
+    document.querySelectorAll('#board .items').forEach(el => {
+      const c = el.dataset.cat;
+      next[c] = [...el.querySelectorAll('.item')].map(r => byId[r.dataset.id]).filter(Boolean);
+      placed += next[c].length;
+    });
+    // Only commit if nothing was lost or duplicated along the way
+    if(placed === total && CATEGORIES.every(c => next[c])){
+      CATEGORIES.forEach(c => { state[c] = next[c]; });
     }
     render();
     persist();
@@ -339,10 +348,15 @@
       board.appendChild(col);
 
       const itemsEl = col.querySelector('.items');
+      itemsEl.dataset.cat = cat;
       itemsEl.addEventListener('dragover', (e) => {
         e.preventDefault();
-        const draggingEl = itemsEl.querySelector('.item.dragging');
+        const draggingEl = document.querySelector('#board .item.dragging');
         if(!draggingEl) return;
+        document.querySelectorAll('#board .items.drop-target').forEach(el => { if(el !== itemsEl) el.classList.remove('drop-target'); });
+        itemsEl.classList.add('drop-target');
+        const hint = itemsEl.querySelector('.empty-hint');
+        if(hint) hint.remove();
         const afterElement = getDragAfterElement(itemsEl, e.clientY);
         if(afterElement == null){
           itemsEl.appendChild(draggingEl);
@@ -397,7 +411,7 @@
           row.innerHTML = `
             <div class="item-main">
               <span class="check">${checkIcon()}</span>
-              <span class="drag-handle" draggable="true" title="Drag to reorder">⠿</span>
+              <span class="drag-handle" draggable="true" title="Drag to move">⠿</span>
               <span class="item-text">${escapeHtml(item.text)}</span>
               <span class="expand-toggle${item.notes ? ' has-notes' : ''}" title="${isExpanded ? 'Hide details' : 'Add details'}">${isExpanded ? '▾' : '▸'}</span>
               <span class="edit-btn" title="Edit">✎</span>
@@ -442,7 +456,7 @@
           handle.addEventListener('dragend', (e) => {
             e.stopPropagation();
             row.classList.remove('dragging');
-            finalizeOrder(cat, itemsEl);
+            finalizeOrder();
           });
 
           itemsEl.appendChild(row);
